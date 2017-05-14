@@ -3,10 +3,8 @@ package rebuildindex;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -584,17 +582,20 @@ public class rebuildindex {
 		System.out.println("backup all files end");
 	}
 
+	public void compress(String sourcePath, String destPath){
+		//SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
+		//System.out.println("start compress:" +df.format(new Date()));
+		Compress.zipFile = new File(sourcePath);
+		Compress compress = new Compress();
+		compress.compress(destPath);
+	    //System.out.println("end compress:" +df.format(new Date()));
+	}
 
   	public static void main(String[] args) throws Exception {
 		if ((args.length > 0) && null != args) {
 			listingName.append(args[0]);
 			rebuildindex helper = new rebuildindex();
-			SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
-			System.out.println(df.format(new Date()));
-			Compress.zipFile = new File("data/" + listingName.toString() + "/compressed.zip");
-			Compress compress = new Compress();
-			compress.compress("data/" + listingName.toString() + "/backfiles/");
-		    System.out.println(df.format(new Date()));
+			helper.compress("data/" + listingName.toString() + "/compressed.zip","data/" + listingName.toString() + "/listings/");
 			
 			//helper.autoBackupListings();
 
