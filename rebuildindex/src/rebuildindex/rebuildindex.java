@@ -33,10 +33,8 @@ public class rebuildindex {
 			}
 			// assuming adapter own index file
 			String listingTxt = getFileContent(fileName);
-
 			JsonNode jnode = Json.parse(listingTxt);
 			ResiListingBrief[] listings = Json.fromJson(jnode, ResiListingBrief[].class);
-
 			List<ResiListingBrief> briefs = new ArrayList<>();
 			for (ResiListingBrief item : listings) {
 				briefs.add(item);
@@ -170,10 +168,9 @@ public class rebuildindex {
 			}
 			// assuming adapter own index file
 			String listingTxt = getFileContent(fileName);
-				
+				System.out.println(System.currentTimeMillis());
 				JsonNode jnode = Json.parse(listingTxt);
 				ResiListingBrief[] listings = Json.fromJson(jnode, ResiListingBrief[].class);
-				
 				List<String> nonPicturesIds = new ArrayList<>();
 				for (ResiListingBrief item : listings) {
 					if ((null==item.pictures.fileNames||item.pictures.fileNames.size()==0)&&(item.pictures.tryTimes!=0)) {
@@ -199,10 +196,10 @@ public class rebuildindex {
 			String listingTxt = getFileContent(fileName);
 				
 				JsonNode jnode = Json.parse(listingTxt);
-				ResiListingBrief[] listings = Json.fromJson(jnode, ResiListingBrief[].class);
+				CommListingBrief[] listings = Json.fromJson(jnode, CommListingBrief[].class);
 				
 				List<String> nonPicturesIds = new ArrayList<>();
-				for (ResiListingBrief item : listings) {
+				for (CommListingBrief item : listings) {
 					if ((null==item.pictures.fileNames||item.pictures.fileNames.size()==0)&&(item.pictures.tryTimes!=0)) {
 						nonPicturesIds.add(item.propertyId);
 					}
@@ -463,25 +460,29 @@ public class rebuildindex {
 		//Map<String, Map<String, String>> resiListingsMap = getAllResiListings(listingFiles);
 		//List<String> nonPicturesIds = getNonPicturesResiListingIds(IndexType.Available);
 		List<String> nonPicturesAndTrytimesNotZeroResiIds = getNonPicturesAndTrytimesNotZeroResiIds(IndexType.Available);
-		setNonPictureListings(nonPicturesAndTrytimesNotZeroResiIds);
-		Iterator<String> iterator = nonPicturesAndTrytimesNotZeroResiIds.iterator();
-		while (iterator.hasNext()) {
-			String nonPicturesId = (String) iterator.next();
-			resiBriefs.get(nonPicturesId).pictures.tryTimes = 0;
+		if (nonPicturesAndTrytimesNotZeroResiIds.size()>0) {
+			setNonPictureListings(nonPicturesAndTrytimesNotZeroResiIds);
+			Iterator<String> iterator = nonPicturesAndTrytimesNotZeroResiIds.iterator();
+			while (iterator.hasNext()) {
+				String nonPicturesId = (String) iterator.next();
+				resiBriefs.get(nonPicturesId).pictures.tryTimes = 0;
+			}
+			saveResiIndex(resiBriefs.values(), IndexType.Available);
 		}
-		//saveResiIndex(resiBriefs.values(), IndexType.Available);
 		System.out.println("end resi index change, start comm index change");
 		List<CommListingBrief> commBriefArray = getAllCommListingBriefs(IndexType.Available);
 		Map<String, CommListingBrief> commBriefs = toMap(commBriefArray);
+		System.out.println("Existing comm size:" + commBriefs.size());
 		List<String> nonPicturesAndTrytimesNotZeroCommIds = getNonPicturesAndTrytimesNotZeroCommIds(IndexType.Available);
-		setNonPictureListings(nonPicturesAndTrytimesNotZeroCommIds);
-		Iterator<String> iterator1 = nonPicturesAndTrytimesNotZeroCommIds.iterator();
-		while (iterator1.hasNext()) {
-			String nonPicturesId = (String) iterator1.next();
-			commBriefs.get(nonPicturesId).pictures.tryTimes = 0;
-		}
-		//saveCommIndex(commBriefs.values(), IndexType.Available);
-		
+		if (nonPicturesAndTrytimesNotZeroCommIds.size()>0) {
+			setNonPictureListings(nonPicturesAndTrytimesNotZeroCommIds);
+			Iterator<String> iterator1 = nonPicturesAndTrytimesNotZeroCommIds.iterator();
+			while (iterator1.hasNext()) {
+				String nonPicturesId = (String) iterator1.next();
+				commBriefs.get(nonPicturesId).pictures.tryTimes = 0;
+			}
+			saveCommIndex(commBriefs.values(), IndexType.Available);
+		}		
 		System.out.println("end to change index");
 		return updateNum;
 	}	
