@@ -347,7 +347,27 @@ public class rebuildindex {
 		return filelist;
 	}
 
-	public Map<String, Map<String, String>> getAllResiListings(List<File> filelist) {
+	public static List<File> getFileListWithIndex(String strPath) {
+		List<File> filelist = new ArrayList<File>();
+		File dir = new File(strPath);
+		File[] files = dir.listFiles();
+		if (files != null) {
+			for (int i = 0; i < files.length; i++) {
+				String fileName = files[i].getName();
+				if (files[i].isDirectory()) {
+					getFileList(files[i].getAbsolutePath());
+				} else if (fileName.endsWith("txt")) {
+					filelist.add(files[i]);
+				} else {
+					continue;
+				}
+			}
+
+		}
+		return filelist;
+	}
+
+	Map<String, Map<String, String>> getAllResiListings(List<File> filelist) {
 		Map<String, Map<String, String>> listingsMap = new HashMap<>();
 		Iterator<File> iterator = filelist.iterator();
 		while (iterator.hasNext()) {
@@ -365,6 +385,22 @@ public class rebuildindex {
 			}
 		}
 		return listingsMap;
+	}
+	
+	 Map<String, String> getListingById(String propertyId) {
+		String listingTxt;
+		String fileName = "data/" + listingName.toString() + "/listings/"+propertyId+".txt";
+		File file = new File(fileName);
+		try {
+			listingTxt = getFileContent(fileName);
+			JsonNode jnode = Json.parse(listingTxt);
+			HashMap<String, String> listingMap = (HashMap<String, String>) Json.fromJson(jnode, Map.class);
+			//System.out.println(listingMap.toString());
+			return listingMap;
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return null;
 	}
 
 	public int updateIndex(String[] parameters) throws Exception {
@@ -424,20 +460,11 @@ public class rebuildindex {
 		Map<String, ResiListingBrief> resiBriefs = toMap(resiBriefArray);
 		System.out.println("Existing resi size:" + resiBriefs.size());
 
-		List<File> listingFiles = getFileList("data/" + listingName.toString() + "/listings/");
-		Map<String, Map<String, String>> resiListingsMap = getAllResiListings(listingFiles);
-		for (int i = 0; i < resiListingsMap.size(); i++) {
-			if (!listingFiles.get(i).exists()) {
-				System.out.println("listing file not found, what's wrong");
-				return 0;
-			}
-			String fileName = listingFiles.get(i).getName();
-			String propertyId = fileName.replace(".txt", "");
-			if (null==fileName) {
-				System.out.println("listing file name is null");
-				continue;
-			}
-			JsonNode jnode = Json.parse(FileUtils.toJsonString(resiListingsMap.get(fileName).get("attributes")));
+		Iterator<ResiListingBrief> iterator = resiBriefArray.iterator();
+		while (iterator.hasNext()) {
+			ResiListingBrief resiListingBrief = (ResiListingBrief) iterator.next();
+			String propertyId = resiListingBrief.propertyId;
+			JsonNode jnode = Json.parse(FileUtils.toJsonString(getListingById(propertyId).get("attributes")));
 			HashMap<String, String> listingMap = (HashMap<String, String>) Json.fromJson(jnode, Map.class);
 			//String attributes = FileUtils.toJsonString(resiListingsMap.get(propertyId).get("attributes"));
 			if (listingMap.containsKey("architecturalstyle")) {
@@ -467,13 +494,12 @@ public class rebuildindex {
 				updateNum++;
 			}
 		}
-		//System.out.println(FileUtils.toJsonString(resiBriefs));
+		
 		saveResiIndex(resiBriefs.values(), IndexType.Available);
 
 		System.out.println("end to change index");
 		return updateNum;
 	}
-
 	
 	
 	public int resetTrytimesForNonPictures() throws Exception {
@@ -571,7 +597,7 @@ public class rebuildindex {
 		File directory = new File("data/" + listingName.toString() + "/backfiles/");
 		if (directory.exists() == false)
 			directory.mkdirs();		
-		List<File> fileList = getFileList("data/" + listingName.toString() + "/listings/");
+		List<File> fileList = getFileListWithIndex("data/" + listingName.toString() + "/listings/");
 		Iterator<File> iterator = fileList.iterator();
 		while (iterator.hasNext()) {
 			File file = (File) iterator.next();
@@ -582,6 +608,22 @@ public class rebuildindex {
 		System.out.println("backup all files end");
 	}
 
+	public void rollbackListings() throws IOException {
+		System.out.println("backup all files start");
+		File directory = new File("data/" + listingName.toString() + "/listings/");
+		if (directory.exists() == false)
+			directory.mkdirs();		
+		List<File> fileList = getFileListWithIndex("data/" + listingName.toString() + "/backfiles/");
+		Iterator<File> iterator = fileList.iterator();
+		while (iterator.hasNext()) {
+			File file = (File) iterator.next();
+			String newFileName = file.getPath().replace("backfiles", "listings");
+			File newFile = new File(newFileName);
+			Files.copy(file.toPath(), newFile.toPath());
+		}
+		System.out.println("backup all files end");
+	}
+	
 	public void compress(String sourcePath, String destPath){
 		//SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
 		//System.out.println("start compress:" +df.format(new Date()));
@@ -590,15 +632,22 @@ public class rebuildindex {
 		compress.compress(destPath);
 	    //System.out.println("end compress:" +df.format(new Date()));
 	}
-
+	//add check picture, latitude ready function in the future
+	//issue 1: no style field: call updateStyle()
+	//issue 2: many listings have no pictures: removeNonPictureListingsInIndex, resetTrytimesForNonPictures
   	public static void main(String[] args) throws Exception {
+  		//System.out.println(System.getProperty("user.dir"));
 		if ((args.length > 0) && null != args) {
 			listingName.append(args[0]);
 			rebuildindex helper = new rebuildindex();
-			helper.compress("data/" + listingName.toString() + "/compressed.zip","data/" + listingName.toString() + "/listings/");
+			//helper.autoBackupListings();
+			//helper.compress("data/" + listingName.toString() + "/listingsCompressed_"+System.currentTimeMillis()+".zip","data/" + listingName.toString() + "/listings/");
+			//helper.autoBackupListings();
+			helper.removeNonPictureListingsInIndex();
+			helper.updateStyle(args);
+			//helper.resetTrytimesForNonPictures();
 			
 			//helper.autoBackupListings();
-
 			//helper.removeNonPictureListingsInIndex();
 			//helper.resetTrytimesForNonPictures();
 			//helper.updateIndex(args);
