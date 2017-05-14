@@ -1,13 +1,29 @@
 package rebuildindex;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.CRC32;
+import java.util.zip.CheckedOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -129,6 +145,32 @@ public class rebuildindex {
 		}
 	}
 
+	public List<String> getNonPicturesCommListingIds(IndexType indexType) {
+		try {
+			String fileName = (indexType == IndexType.Available)
+					? "data/" + listingName.toString() + "/listings/indexComm.txt"
+					: "data/" + listingName.toString() + "/delistings/30days.txt";
+			if (new File(fileName).exists() == false) {
+				System.out.println("didn't find the index.txt, please confirm the path");
+				return new ArrayList<>();
+			}
+			// assuming adapter own index file
+			String listingTxt = getFileContent(fileName);
+				
+				JsonNode jnode = Json.parse(listingTxt);
+				CommListingBrief[] listings = Json.fromJson(jnode, CommListingBrief[].class);
+				
+				List<String> nonPicturesIds = new ArrayList<>();
+				for (CommListingBrief item : listings) {
+					if (null==item.pictures.fileNames||item.pictures.fileNames.size()==0) {
+						nonPicturesIds.add(item.propertyId);
+					}
+				}
+			return nonPicturesIds;
+		} catch (Exception ex) {
+			throw new RuntimeException(ex);
+		}
+	}	
 	
 	public List<String> getNonPicturesResiListingIds(IndexType indexType) {
 		try {
@@ -487,11 +529,147 @@ public class rebuildindex {
 		return updateNum;
 	}	
 	
-	public static void main(String[] args) throws Exception {
+	public void removeNonPictureListingsInIndex() {
+		System.out.println("start to change index of " + listingName.toString());
+		List<ResiListingBrief> resiBriefArray = getAllResiListingBriefs(IndexType.Available);
+		Map<String, ResiListingBrief> resiBriefs = toMap(resiBriefArray);
+		System.out.println("Existing resi size:" + resiBriefs.size());
+		
+		List<String> nonPictureListingsIds= getNonPicturesResiListingIds(IndexType.Available);
+		if (nonPictureListingsIds.size()>0) {
+			Iterator<String> iterator = nonPictureListingsIds.iterator();
+			while (iterator.hasNext()) {
+				String nonPictureListingsId = (String) iterator.next();
+				resiBriefs.remove(nonPictureListingsId);
+			}
+			saveResiIndex(resiBriefs.values(), IndexType.Available);
+		}
+		System.out.println("end resi index change, start comm index change");
+
+		List<CommListingBrief> commBriefArray = getAllCommListingBriefs(IndexType.Available);
+		Map<String, CommListingBrief> commBriefs = toMap(commBriefArray);
+		System.out.println("Existing comm size:" + commBriefs.size());		
+		
+		List<String> nonPictureListingsCommIds= getNonPicturesCommListingIds(IndexType.Available);
+		if (nonPictureListingsCommIds.size()>0) {
+			Iterator<String> iterator = nonPictureListingsCommIds.iterator();
+			while (iterator.hasNext()) {
+				String nonPictureListingsId = (String) iterator.next();
+				commBriefs.remove(nonPictureListingsId);
+			}
+			saveCommIndex(commBriefs.values(), IndexType.Available);
+		}
+		System.out.println("end to change index");
+	}
+	
+	public void autoBackupIndex() throws IOException {
+		System.out.println("backup index start");
+		String resiIndexName = "data/" + listingName.toString() + "/listings/index.txt";
+		String commIndexName = "data/" + listingName.toString() + "/listings/indexComm.txt";
+		
+		String newResiName = resiIndexName.replace("index.txt", "index_backup_"+System.currentTimeMillis()+".txt");
+		String newCommName = commIndexName.replace("indexComm.txt", "indexComm_backup_"+System.currentTimeMillis()+".txt");
+		
+		File resiIndexFile = new File(resiIndexName);
+		File resiIndexNewFile = new File(newResiName);
+		Files.copy(resiIndexFile.toPath(), resiIndexNewFile.toPath());
+
+		File commIndexFile = new File(commIndexName);
+		File commIndexNewFile = new File(newCommName);
+		Files.copy(commIndexFile.toPath(), commIndexNewFile.toPath());
+		System.out.println("backup index end");
+	}
+
+	public void autoBackupListings() throws IOException {
+		System.out.println("backup all files start");
+		File directory = new File("data/" + listingName.toString() + "/backfiles/");
+		if (directory.exists() == false)
+			directory.mkdirs();		
+		List<File> fileList = getFileList("data/" + listingName.toString() + "/listings/");
+		Iterator<File> iterator = fileList.iterator();
+		while (iterator.hasNext()) {
+			File file = (File) iterator.next();
+			String newFileName = file.getPath().replace("listings", "backfiles");
+			File newFile = new File(newFileName);
+			Files.copy(file.toPath(), newFile.toPath());
+		}
+		System.out.println("backup all files end");
+	}
+
+	static final int BUFFER = 8192;
+    private static File zipFile;
+    public void compress(String srcPathName) {
+        File file = new File(srcPathName);
+        if (!file.exists())
+            throw new RuntimeException(srcPathName + "不存在！");
+        try {
+            FileOutputStream fileOutputStream = new FileOutputStream(zipFile);
+            CheckedOutputStream cos = new CheckedOutputStream(fileOutputStream, new CRC32());
+            ZipOutputStream out = new ZipOutputStream(cos);
+            String basedir = "";
+            compress(file, out, basedir);
+            out.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void compress(File file, ZipOutputStream out, String basedir) {
+        /* 判断是目录还是文件 */
+        if (file.isDirectory()) {
+            //System.out.println("压缩：" + basedir + file.getName());
+            this.compressDirectory(file, out, basedir);
+        } else {
+            //System.out.println("压缩：" + basedir + file.getName());
+            this.compressFile(file, out, basedir);
+        }
+    }
+
+    /** 压缩一个目录 */
+    private void compressDirectory(File dir, ZipOutputStream out, String basedir) {
+        if (!dir.exists())
+            return;
+
+        File[] files = dir.listFiles();
+        for (int i = 0; i < files.length; i++) {
+            /* 递归 */
+            compress(files[i], out, basedir + dir.getName() + "/");
+        }
+    }
+
+    /** 压缩一个文件 */
+    private void compressFile(File file, ZipOutputStream out, String basedir) {
+        if (!file.exists()) {
+            return;
+        }
+        try {
+            BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
+            ZipEntry entry = new ZipEntry(basedir + file.getName());
+            out.putNextEntry(entry);
+            int count;
+            byte data[] = new byte[BUFFER];
+            while ((count = bis.read(data, 0, BUFFER)) != -1) {
+                out.write(data, 0, count);
+            }
+            bis.close();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+  	public static void main(String[] args) throws Exception {
 		if ((args.length > 0) && null != args) {
 			listingName.append(args[0]);
 			rebuildindex helper = new rebuildindex();
-			helper.resetTrytimesForNonPictures();
+			SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
+			System.out.println(df.format(new Date()));
+		    zipFile = new File("data/" + listingName.toString() + "/compressed.zip");
+		    helper.compress("data/" + listingName.toString() + "/backfiles/");
+		    System.out.println(df.format(new Date()));
+			
+			//helper.autoBackupListings();
+
+			//helper.removeNonPictureListingsInIndex();
+			//helper.resetTrytimesForNonPictures();
 			//helper.updateIndex(args);
 			//helper.updateStyle(args);
 		} else {
